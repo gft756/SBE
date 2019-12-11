@@ -1,0 +1,406 @@
+---
+title: "Exercises"
+author: "Mathias Svendsen"
+date: "December 4, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+```
+
+
+```{r}
+setwd("~/School/Master in statistics/Sbe/SBE/week3")
+angles = read.table('angles.txt', header = T)
+
+summary(angles)
+```
+
+## A trigonometric density
+
+**EX 1**
+
+For $f(x|k) \  \infty \ \ sin(x)^k$ for $x \in [0, \pi]$ to be a probability density, we must have that:
+
+$$\int_0^\pi f(x|k) = 1$$
+
+Thus normelizing $f(x|k)$ with a constant $c_k \in \mathbb{R}$, we can obtain an integral that integrates to 1:
+
+$$\int_0^\pi c_k f(x|k) \ dx  =\int_0^\pi c_k sin(x)^k \ dx  = c_k \int_0^\pi sin(x)^k \ dx = 1 \iff c_k = \frac{1}{\int_0^\pi sin(x)^k \ dx} $$
+
+**Ex 2**
+
+Yes the model is parametric, and the parameter of the model is $k$.
+
+**Ex 3**
+
+If we assume that the observations from the angles data set are iid samples with pmf $f(x|k)$, the likelihood takes the form: 
+
+$$\mathcal{L}(k|x) = \prod_{i=1}^{1000} c_k f(x | k) =  \prod_{i=1}^{1000}c_k \sin(x_i)^k$$
+
+
+From this we can derive the minus log-likelihood function:
+
+$$\ell (k |x) = -\log(\mathcal{L}(k|x)) = - \sum_{i = 1}^{1000} \log(c_k \sin(x_i)^k) = - \sum_{i = 1}^{1000} k \log(\sin(x_i)) + \log(c_k) = \sum_{i = 1}^{1000} \log(\int_0^\pi sin(x)^k) - k \log(\sin(x_i))  $$
+
+implementation:
+
+```{r}
+
+x = angles$x
+n = length(x)
+
+const = function(k) {
+  integrate(function(y) sin(y)^k, 0, pi)$value
+}
+
+neglogLik = function(k) {
+  
+  n*log(const(k)) - k*sum(log(sin(x)))
+}
+
+neglogLik = Vectorize(neglogLik)
+
+curve(neglogLik, 0, 50, main = "Negative loglikelihood", xlab = "k", ylab = "neglogLik(k)", col = "red")
+```
+
+Computing MLE numerically with optimize
+
+```{r}
+MLE = optimize(neglogLik, c(0,15))$minimum
+pmf = function(x) {
+  1/const(MLE) * sin(x)^MLE
+}
+```
+
+
+Plotting the histogram with the density corresponding to the MLE.
+
+
+```{r}
+ggplot(angles, aes(x)) +
+  geom_histogram(aes(y = ..density..), color = "black", fill = "white", alpha = I(.2)) +
+  geom_area(stat = "function", fun = pmf, fill = "#1E90FF",
+            alpha = I(.2), color = "black") +
+  theme_bw() +
+  ggtitle("Histogram of angles") 
+```
+
+
+
+
+## 2 A case study of neuronal data
+
+
+**Ex 1**
+
+```{r}
+neuron =  read.table("neuronspikes.txt", header = F, col.names = "x")
+neuron = neuron$x
+```
+
+The MLE of the rate $\lambda$ for an exponential distribution has a closed form: $$\frac{1}{\bar{X}}$$
+
+```{r}
+lambda_hat = 1/mean(neuron)  
+```
+
+**Ex 2**
+
+We implement the negative loglikelihood for iid observations following a gamma distrubution with $\alpha$ (rate) and $\beta$ (shape), and use the optim function for finding the MLE.
+
+```{r}
+neglogLik = function(par, data) {
+  if (par[1] < 0 | par[2] <0){
+    return(Inf) # shape and scale can not be less than zero
+  }
+  -sum( dgamma(x = data, shape = par[1], rate = par[2], log = TRUE) )
+}
+```
+
+
+```{r}
+optim(fn = neglogLik, data = neuron, par = c(0.1, 0.5))
+```
+
+**Ex 2**
+
+Since $E[X] = \frac{\alpha}{\beta}$ and $V[X] = \frac{\alpha}{\beta^2}$ we must have that:
+
+$\alpha = \frac{E[X]^2}{V[X]}$ and $\beta = \frac{E[X]}{V[X]}$.
+
+The method of moment estimatior of $\hat{\alpha}$ and $\hat{beta}$ can thus be optained as:
+
+```{r}
+alpha_hat = mean(neuron)^2 / var(neuron)
+beta_hat = mean(neuron)/var(neuron)
+
+cat("alpha_hat:", "\n", alpha_hat, "\n\n", "beta_hat: \n", beta_hat)
+```
+
+## inverse Gaussian distribution
+
+**Ex 1**
+
+The analytic expression of the loglikelihood is:
+
+$$\ell(\lambda, \mu | x) = \sum_i^n \log(\sqrt{ \frac{\lambda}{2 \pi x_i^3}  }) - \frac{\lambda(x_i - \mu)^2}{2 \mu^2 x_i} $$
+
+**Ex 2**
+
+**Ex1**
+
+**Ex 4**
+
+```{r}
+ISI = read.table("neuronspikes.txt", col.names = "isi")
+```
+
+
+```{r}
+neglogLik = function(par, data) {
+  -sum(log( sqrt( par[1]/(2*pi*data^3) ) ) - (par[1]*(data - par[2])^2) / (2*par[2]^2*data) )
+}
+
+MM_MLE = c(mean(ISI$isi) ,   mean(ISI$isi)^3/var(ISI$isi)) # method of means estimators
+MLE = optim(fn = neglogLik, data = ISI, par = MM_MLE)$par
+
+
+pmf = function(x) {
+   sqrt( MLE[2]/(2*pi*x^3) ) * exp( (MLE[2]*(x - MLE[1])^2) / (2*MLE[1]^2*x)) 
+}
+```
+
+
+```{r}
+ggplot(ISI, aes(isi)) +
+  geom_histogram(aes(y = ..density..), color = "black", fill = "white", alpha = I(.2))  +
+  geom_area(stat = "function", fun = pmf, fill = "#1E90FF",
+            alpha = I(.2), color = "black") +
+  xlim(c(0.3, 5)) +
+  theme_bw() +
+  ggtitle("Histogram of isi") 
+```
+
+
+
+```{r}
+hist(ISI$isi, probability = T)
+curve(pmf, 0, 5.1, add = T)
+```
+
+
+```{r}
+
+# method 2 for numerical optimization (implement pmf and set negative loglikelihood to -sum(log(pmf)))
+pmf = function(par, data) {
+   sqrt( par[1]/(2*pi*data^3) ) * exp( (-par[1]*(data - par[2])^2) / (2*par[2]^2*data)) 
+}
+
+neglogLik = function(par, data) {
+  -sum(log(pmf(par, data)))
+}
+
+
+MLE = optim(fn = neglogLik, data = ISI, par = c(0.1, 0.5))$par
+cat(MLE)
+```
+
+
+##  Brain cell dataset
+
+```{r}
+cells = read.csv("cell_types.csv", na.strings = "")
+rst = na.omit(cells$ef__peak_t_ramp) # ramp spike time
+```
+
+
+```{r}
+neglogLik = function(par, data) {
+  if (par[2] <0){
+    return(Inf) # variance parameter must be positive
+  }
+  -sum( dlnorm(x = data, meanlog = par[1], sdlog = par[2], log = TRUE) )
+}
+
+MLE = optim(fn = neglogLik, data = rst, par = MM_MLE )$par
+
+cat("MLE : \n", MLE)
+```
+
+
+
+```{r}
+ggplot(as.data.frame( rst), aes(rst)) +
+  geom_histogram(aes(y = ..density..), color = "black", fill = "white", alpha = I(.2))  +
+  geom_density(stat = "function", fun = dlnorm, args = list(meanlog = MLE[1], sdlog = MLE[2]),  fill = "#1E90FF",
+            alpha = I(.2), color = "black") +
+  theme_bw() +
+  ggtitle("Histogram of ramp spike time") 
+```
+
+
+**Ex 4.2**
+
+```{r}
+log_rst = log(rst)
+MLE = c(mean(log_rst), sd(log_rst))
+
+ggplot(as.data.frame( log_rst), aes(log_rst)) +
+  geom_histogram(aes(y = ..density..), color = "black", fill = "white", alpha = I(.2))  +
+  geom_density(stat = "function", fun = dnorm, args = list(mean = MLE[1], sd = MLE[2]),  fill = "#1E90FF",
+            alpha = I(.2), color = "black") +
+  theme_bw() +
+  ggtitle("Histogram of log[ ramp spike time ]") 
+```
+
+
+
+```{r}
+homo_sapiens = subset(cells, donor__species == 'Homo Sapiens')
+rst_homo_sapiens = log(na.omit(homo_sapiens$ef__peak_t_ramp))
+
+MLE_homo_sapiens = c(mean(rst_homo_sapiens), sd(rst_homo_sapiens))
+```
+
+
+
+```{r}
+rst = as.data.frame(na.omit(cells[c('ef__peak_t_ramp' , 'donor__species')]))
+
+ggplot(rst, aes(ef__peak_t_ramp)) +
+  geom_density(stat = "function", fun = dlnorm, args = list(meanlog = MLE[1], sdlog = MLE[2]),
+               fill = "#E69F00", alpha = I(.2) )  +
+  geom_density(stat = "function", fun = dlnorm, args = list(meanlog = MLE_homo_sapiens[1], sdlog = MLE_homo_sapiens[2]),
+                fill = "#228B22", alpha = I(.3)) + 
+  theme_bw() +
+  xlab('ramp spike time') +
+  ggtitle("density estimates")
+```
+
+
+
+## 4 Molecular evolution, Jukes-Cantor model
+
+**Ex 1**
+
+```{r}
+JKM = function(y, x, alpha, t) {
+  ifelse(y == x, 0.25 + 0.75*exp(-4*alpha*t), 0.25 - 0.25*exp(-4*alpha*t) )
+}
+
+
+alpha_seq = seq(0, 1, 0.2 )
+first_plot = TRUE
+
+  for (i in seq_along(alpha_seq)) {
+  
+  JKM_equal = function(t) {
+    JKM('A', 'A', i, t)
+  }
+  
+  JKM_equal = Vectorize(JKM_equal)
+  
+  curve(JKM_equal, add = first_plot, col = 10*i,
+        main = "P(Y = y | X = y) vs t (for different alphas)", xlab  = "t",
+        ylab = "P(Y = y | X = y)")
+  
+}  
+
+```
+
+
+```{r}
+# Y \= X
+
+
+alpha_seq = seq(0, 1, 0.2 )
+first_plot = TRUE
+
+  for (i in seq_along(alpha_seq)) {
+  
+  JKM_equal = function(t) {
+    JKM('A', 'G', i, t)
+  }
+  
+  JKM_equal = Vectorize(JKM_equal)
+  
+  curve(JKM_equal, add = first_plot, col = 10*i,
+        main = "P(Y = y | X = x) vs t (for different alphas)", xlab  = "t",
+        ylab = "P(Y = y | X = x)")
+  
+}  
+```
+
+
+
+
+
+**Ex 2**
+implementation of loglikelihood
+
+```{r}
+# Fix t, we have n obs : (X_1, Y_1),...,(X_n,Y_n), the likelihood function becomes: 
+
+lik = function(alpha, t = 3,  n1, n2) {
+  
+  (0.25 + 0.75*exp(-4*alpha*t))^n1 * (0.25 - 0.25*exp(-4*alpha*t) )^n2 * 0.25^(n1 + n2)
+}
+
+loglik = function(alpha) {
+  -log( lik(alpha, n1 = 60, n2 = 50) )
+}
+
+loglik = Vectorize(loglik)
+```
+
+
+plot of loglikelihood and numerical estimate of MLE for fixed n and t
+```{r}
+MLE = optimize(loglik, c(0, 0.8)) 
+
+curve(loglik, main = "negative-loglikelihood", xlab = "alpha",ylab = "loglik(alpha)");abline(v = MLE, lty = 2, col = "blue")
+
+cat(MLE$minimum)
+```
+
+**Ex 3**
+
+
+**Ex 4**
+
+Implementation of pmf and sample function, implementation of likelihood and numerical MLE can be found in EX 2
+
+```{r}
+pmf = function(x, y, alpha, t) {
+  
+  ifelse(y == x,  0.25 + 0.75*exp(-4*alpha*t)*0.25, 0.25 - 0.25*exp(-4*alpha*t)*0.25)
+
+  }
+
+```
+
+
+```{r}
+sampler = function(n, alpha, t) {
+  
+  sample( c("(A,A)", "(T,T)", "(C,C)", "(G,G)", "(A,T)", "(A,C)", "(A,G)", "(T,C)", "(T,G)", "(C,G)"), size = n, replace = T,
+         prob = c( rep( pmf('A', 'A', alpha, t), 4 ), rep( 2*pmf('A', 'B', alpha, t), 6 ) ) )
+
+  }
+
+
+sampler(50, 0.2, 5)
+```
+
+
+
+
+
+
+
